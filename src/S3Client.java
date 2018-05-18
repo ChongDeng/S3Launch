@@ -223,6 +223,109 @@ public class S3Client {
         }
     }
 
+    public static void DownloadBucketWithPinpoint(String BucketName, String APPId, DateTime StartTime, DateTime EndTime, String PathToSave, int ThreadNum){
+
+        try
+        {
+            BasicAWSCredentials credentials = new BasicAWSCredentials(AccessKey, SecretKey);
+
+            AmazonS3 s3Client = AmazonS3ClientBuilder.standard()
+                    .withCredentials(new AWSStaticCredentialsProvider(credentials)).withRegion(Regions.US_EAST_1)
+                    .build();
+
+            List<String> Keys = new ArrayList<String>();
+
+            System.out.println("begin to get the urls for downloading!");
+
+            ListObjectsV2Request req = new ListObjectsV2Request().withBucketName(BucketName).withPrefix("awsma/events/" + APPId);
+            ListObjectsV2Result result;
+
+            do {
+                result = s3Client.listObjectsV2(req);
+
+                for (S3ObjectSummary objectSummary : result.getObjectSummaries()) {
+                    //System.out.printf(" - %s (size: %d)\n", objectSummary.getKey(), objectSummary.getSize());
+
+                    String url = objectSummary.getKey();
+                    String DateTimeTag = url.substring(("awsma/events/" + APPId).length() + 1).substring(0,10);
+
+                    DateTimeFormatter formatter = DateTimeFormat.forPattern("yyyy/MM/dd");
+                    DateTime DateTimeVal = formatter.parseDateTime(DateTimeTag);
+
+                    if(StartTime.compareTo(DateTimeVal) <= 0 && DateTimeVal.compareTo(EndTime) <= 0){
+//                        System.out.printf(" - %s (size: %d)\n", objectSummary.getKey(), objectSummary.getSize());
+
+                        Keys.add(objectSummary.getKey());
+                    }
+                }
+                // If there are more than maxKeys keys in the bucket, get a continuation token
+                // and list the next objects.
+                String token = result.getNextContinuationToken();
+                req.setContinuationToken(token);
+            } while (result.isTruncated());
+
+
+            req = new ListObjectsV2Request().withBucketName(BucketName).withPrefix("20");
+
+            do {
+                result = s3Client.listObjectsV2(req);
+
+                for (S3ObjectSummary objectSummary : result.getObjectSummaries()) {
+                    //System.out.printf(" - %s (size: %d)\n", objectSummary.getKey(), objectSummary.getSize());
+
+                    String url = objectSummary.getKey();
+                    //System.out.println("url: " + url);
+                    String DateTimeTag = url.substring(0,10);
+
+                    DateTimeFormatter formatter = DateTimeFormat.forPattern("yyyy/MM/dd");
+                    DateTime DateTimeVal = formatter.parseDateTime(DateTimeTag);
+
+                    if(StartTime.compareTo(DateTimeVal) <= 0 && DateTimeVal.compareTo(EndTime) <= 0){
+                        //System.out.printf(" - %s (size: %d)\n", objectSummary.getKey(), objectSummary.getSize());
+
+                        Keys.add(objectSummary.getKey());
+                    }
+                }
+                // If there are more than maxKeys keys in the bucket, get a continuation token
+                // and list the next objects.
+                String token = result.getNextContinuationToken();
+                req.setContinuationToken(token);
+            } while (result.isTruncated());
+
+
+            Thread.sleep(1000);
+            int KeysLen = Keys.size();
+            System.out.println(KeysLen + " files to download!");
+
+
+            System.out.println("Begin to download! Please wait for a while!");
+            long start = System.currentTimeMillis();
+
+            // 创建一个初始值为ThreadNum的倒数计数器
+            CountDownLatch countDownLatch = new CountDownLatch(ThreadNum);
+
+            // 将下载分成threadNum = 10份。
+            int block = KeysLen % ThreadNum == 0 ? KeysLen / ThreadNum
+                    : KeysLen / ThreadNum + 1;
+            for (int threadId = 0; threadId < ThreadNum; threadId++) {
+                new DownloadThread(threadId, block, Keys, s3Client, BucketName, PathToSave, countDownLatch).start();
+            }
+
+            // 阻塞当前线程，直到倒数计数器倒数到0
+            countDownLatch.await();
+            System.out.println("finished downloading");
+
+            long end = System.currentTimeMillis();
+            System.out.println("Downloaded " + KeysLen + " files");
+            System.out.println("total download time: " + (end - start) / 1000 + "s");
+
+
+
+        }
+        catch (Exception ex) {
+            System.err.println("exception happened when downloading bucket! exception: " + ex.toString());
+        }
+    }
 
     public static void DownloadBucket(String BucketName, String APPId, DateTime StartTime, DateTime EndTime, String PathToSave, int ThreadNum){
 
@@ -393,7 +496,8 @@ public class S3Client {
         String APPId = args[3];
         String PathToSave = args[4];
         int ThreadNum = Integer.valueOf(args[5]);
-        DownloadBucket(BucketName, APPId, StartTime, EndTime, PathToSave, ThreadNum);
+        //DownloadBucket(BucketName, APPId, StartTime, EndTime, PathToSave, ThreadNum);
+        DownloadBucketWithPinpoint(BucketName, APPId, StartTime, EndTime, PathToSave, ThreadNum);
     }
 }
 
